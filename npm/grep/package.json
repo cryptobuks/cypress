@@ -5,7 +5,8 @@
   "main": "src/support",
   "scripts": {
     "cy:run": "node ../../scripts/cypress.js run --config specPattern='**/unit.js'",
-    "cy:open": "node ../../scripts/cypress.js open --e2e -b electron --config specPattern='**/unit.js'"
+    "cy:open": "node ../../scripts/cypress.js open --e2e -b electron --config specPattern='**/unit.js'",
+    "test-unit": "echo 'no unit tests'"
   },
   "dependencies": {
     "debug": "^4.3.2",

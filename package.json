@@ -52,7 +52,6 @@
     "stop-only-all": "yarn stop-only --folder packages",
     "pretest": "yarn ensure-deps",
     "test": "yarn lerna exec yarn test",
-    "test-dev": "yarn lerna exec yarn test --scope cypress --scope \"'@packages/{config,data-context,electron,errors,extension,https-proxy,launcher,net-stubbing,network,packherd-require,proxy,rewriter,scaffold-config,socket,v8-snapshot-require}'\" --scope \"'@tooling/{electron-mksnapshot,v8-snapshot}'\"",
     "test-debug": "lerna exec yarn test-debug --ignore \"'@packages/{driver,root,static,web-config}'\"",
     "test-integration": "lerna exec yarn test-integration --ignore \"'@packages/{driver,root,static,web-config}'\"",
     "test-mocha": "mocha --reporter spec scripts/spec.js",
