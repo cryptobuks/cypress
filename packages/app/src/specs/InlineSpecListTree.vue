@@ -41,7 +41,7 @@
             :file-name="row.data.data?.fileName || row.data.name"
             :extension="row.data.data?.specFileExtension || ''"
             :selected="isCurrentSpec(row.data)"
-            :indexes="row.data?.data?.fileIndexes"
+            :indexes="row.data.highlightIndexes"
             class="pl-22px"
             data-cy="spec-file-item"
           />
@@ -50,7 +50,7 @@
             class="children:truncate"
             :name="row.data.name"
             :expanded="treeSpecList[row.index].expanded.value"
-            :indexes="getDirIndexes(row.data)"
+            :indexes="row.data.highlightIndexes"
             data-cy="directory-item"
           />
         </RouterLink>
@@ -60,17 +60,15 @@
 </template>
 
 <script setup lang="ts">
-import { useCollapsibleTree } from '@packages/frontend-shared/src/composables/useCollapsibleTree'
-import type { UseCollapsibleTreeNode } from '@packages/frontend-shared/src/composables/useCollapsibleTree'
-import { buildSpecTree, getDirIndexes } from './spec-utils'
-import type { SpecTreeNode, FuzzyFoundSpec } from './spec-utils'
+import { UseCollapsibleTreeNode, useCollapsibleTree, SpecTreeNode, FuzzyFoundSpec, buildSpecTree } from './tree/useCollapsibleTree'
 import SpecFileItem from './SpecFileItem.vue'
 import { computed, watch, onMounted } from 'vue'
 import DirectoryItem from './DirectoryItem.vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useSpecStore } from '../store'
-import { useVirtualList } from '@packages/frontend-shared/src/composables/useVirtualList'
-import { useVirtualListNavigation } from '@packages/frontend-shared/src/composables/useVirtualListNavigation'
+import { useVirtualList } from './tree/useVirtualList'
+import { useVirtualListNavigation } from './tree/useVirtualListNavigation'
+import { useStudioStore } from '../store/studio-store'
 
 const props = defineProps<{
   specs: FuzzyFoundSpec[]
@@ -115,6 +113,11 @@ const toggle = (row: UseCollapsibleTreeNode<SpecTreeNode<FuzzyFoundSpec>>, idx: 
 }
 
 const submit = (row: UseCollapsibleTreeNode<SpecTreeNode<FuzzyFoundSpec>>, idx: number) => {
+  // If the user selects a new spec while in studio mode, turn studio mode off
+  const studioStore = useStudioStore()
+
+  studioStore.cancel()
+
   activeItem.value = idx
 
   if (row.isLeaf) {

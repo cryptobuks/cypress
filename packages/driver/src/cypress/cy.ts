@@ -33,11 +33,11 @@ import { TestConfigOverride } from '../cy/testConfigOverrides'
 import { create as createOverrides, IOverrides } from '../cy/overrides'
 import { historyNavigationTriggeredHashChange } from '../cy/navigation'
 import { EventEmitter2 } from 'eventemitter2'
+import { handleCrossOriginCookies } from '../cross-origin/events/cookies'
 
 import type { ICypress } from '../cypress'
 import type { ICookies } from './cookies'
 import type { StateFunc } from './state'
-import type { AutomationCookie } from '@packages/server/lib/automation/cookies'
 
 const debugErrors = debugFn('cypress:driver:errors')
 
@@ -51,8 +51,7 @@ const getContentWindow = ($autIframe) => {
 
 const setWindowDocumentProps = function (contentWindow, state) {
   state('window', contentWindow)
-
-  return state('document', contentWindow.document)
+  state('document', contentWindow.document)
 }
 
 function __stackReplacementMarker (fn, ctx, args) {
@@ -152,18 +151,18 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
 
   isStable: IStability['isStable']
   whenStable: IStability['whenStable']
-  isAnticipatingCrossOriginResponseFor: IStability['isAnticipatingCrossOriginResponseFor']
-  whenStableOrAnticipatingCrossOriginResponse: IStability['whenStableOrAnticipatingCrossOriginResponse']
 
   assert: IAssertions['assert']
   verifyUpcomingAssertions: IAssertions['verifyUpcomingAssertions']
 
   retry: IRetries['retry']
+  retryIfCommandAUTOriginMismatch: IRetries['retryIfCommandAUTOriginMismatch']
 
   $$: IJQuery['$$']
   getRemotejQueryInstance: IJQuery['getRemotejQueryInstance']
 
   getRemoteLocation: ILocation['getRemoteLocation']
+  getCrossOriginRemoteLocation: ILocation['getCrossOriginRemoteLocation']
 
   fireBlur: IFocused['fireBlur']
   fireFocus: IFocused['fireFocus']
@@ -200,6 +199,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
   ensureValidPosition: IEnsures['ensureValidPosition']
   ensureScrollability: IEnsures['ensureScrollability']
   ensureNotReadonly: IEnsures['ensureNotReadonly']
+  ensureCommandCanCommunicateWithAUT: IEnsures['ensureCommandCanCommunicateWithAUT']
 
   createSnapshot: ISnapshots['createSnapshot']
   detachDom: ISnapshots['detachDom']
@@ -249,7 +249,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     this.onBeforeAppWindowLoad = this.onBeforeAppWindowLoad.bind(this)
     this.onUncaughtException = this.onUncaughtException.bind(this)
     this.setRunnable = this.setRunnable.bind(this)
-    this.cleanup = this.cleanup.bind(this)
+    this.setSubjectForChainer = this.setSubjectForChainer.bind(this)
 
     // init traits
 
@@ -262,8 +262,6 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
 
     this.isStable = stability.isStable
     this.whenStable = stability.whenStable
-    this.isAnticipatingCrossOriginResponseFor = stability.isAnticipatingCrossOriginResponseFor
-    this.whenStableOrAnticipatingCrossOriginResponse = stability.whenStableOrAnticipatingCrossOriginResponse
 
     const assertions = createAssertions(Cypress, this)
 
@@ -277,6 +275,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     const retries = createRetries(Cypress, state, this.timeout, this.clearTimeout, this.whenStable, onFinishAssertions)
 
     this.retry = retries.retry
+    this.retryIfCommandAUTOriginMismatch = retries.retryIfCommandAUTOriginMismatch
 
     const jquery = createJQuery(state)
 
@@ -286,6 +285,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     const location = createLocation(state)
 
     this.getRemoteLocation = location.getRemoteLocation
+    this.getCrossOriginRemoteLocation = location.getCrossOriginRemoteLocation
 
     const focused = createFocused(state)
 
@@ -349,6 +349,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
 
     this.ensureSubjectByType = ensures.ensureSubjectByType
     this.ensureRunnable = ensures.ensureRunnable
+    this.ensureCommandCanCommunicateWithAUT = ensures.ensureCommandCanCommunicateWithAUT
 
     const snapshots = createSnapshots(this.$$, state)
 
@@ -360,7 +361,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
 
     this.overrides = createOverrides(state, config, focused, snapshots)
 
-    this.queue = new CommandQueue(state, this.timeout, stability, this.cleanup, this.fail, this.isCy, this.clearTimeout)
+    this.queue = new CommandQueue(state, this.timeout, stability, this.fail, this.isCy, this.clearTimeout, this.setSubjectForChainer)
 
     setTopOnError(Cypress, this)
 
@@ -373,29 +374,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
       this.enqueue(attrs)
     })
 
-    Cypress.on('cross:origin:automation:cookies', (cookies: AutomationCookie[]) => {
-      const existingCookies: AutomationCookie[] = state('cross:origin:automation:cookies') || []
-
-      this.state('cross:origin:automation:cookies', existingCookies.concat(cookies))
-
-      Cypress.backend('cross:origin:automation:cookies:received')
-    })
-
-    Cypress.on('before:stability:release', (stable: boolean) => {
-      const cookies: AutomationCookie[] = state('cross:origin:automation:cookies') || []
-
-      if (!stable || !cookies.length) return
-
-      // reset the state cookies before setting them via automation in case
-      // any more get set in the interim
-      state('cross:origin:automation:cookies', [])
-
-      // this will be awaited before any stability-reliant actions
-      return Cypress.automation('add:cookies', cookies)
-      .catch(() => {
-        // errors here can be ignored as they're not user-actionable
-      })
-    })
+    handleCrossOriginCookies(Cypress)
   }
 
   isCy (val) {
@@ -487,10 +466,12 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     //    then it should fail
     // 4. and tests without a done will pass
 
-    // if we dont have a "fail" handler
+    // if we don't have a "fail" handler
     // 1. callback with state("done") when async
     // 2. throw the error for the promise chain
     try {
+      this.Cypress.state('logGroupIds', []) // reset log groups so assertions are at the top level
+
       // collect all of the callbacks for 'fail'
       rets = this.Cypress.action('cy:fail', err, this.state('runnable'))
     } catch (cyFailErr: any) {
@@ -512,7 +493,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
   initialize ($autIframe) {
     this.state('$autIframe', $autIframe)
 
-    // dont need to worry about a try/catch here
+    // don't need to worry about a try/catch here
     // because this is during initialize and its
     // impossible something is wrong here
     setWindowDocumentProps(getContentWindow($autIframe), this.state)
@@ -530,7 +511,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     // when we find ourselves in a cross origin situation, then our
     // proxy has not injected Cypress.action('window:before:load')
     // so Cypress.onBeforeAppWindowLoad() was never called
-    return $autIframe.on('load', () => {
+    return $autIframe.on('load', async () => {
       if (historyNavigationTriggeredHashChange(this.state)) {
         // Skip load event.
         // Chromium 97+ triggers fires iframe onload for cross-origin-initiated same-document
@@ -547,32 +528,75 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
       try {
         const autWindow = getContentWindow($autIframe)
 
-        setWindowDocumentProps(autWindow, this.state)
+        let isRunnerAbleToCommunicateWithAUT: boolean
 
-        // we may need to update the url now
-        this.urlNavigationEvent('load')
+        try {
+          // Test to see if we can communicate with the AUT.
+          autWindow.location.href
+          isRunnerAbleToCommunicateWithAUT = true
+        } catch (err: any) {
+          if (!this.config('experimentalSessionAndOrigin') && err.name === 'SecurityError') {
+            throw err
+          }
 
-        // we normally DONT need to reapply contentWindow listeners
-        // because they would have been automatically applied during
-        // onBeforeAppWindowLoad, but in the case where we visited
-        // about:blank in a visit, we do need these
-        this.contentWindowListeners(autWindow)
+          isRunnerAbleToCommunicateWithAUT = false
+        }
+
+        // If the runner can communicate, we should setup all events, otherwise just setup the window and fire the load event.
+        if (isRunnerAbleToCommunicateWithAUT) {
+          if (this.Cypress.isBrowser('webkit')) {
+          // WebKit's unhandledrejection event will sometimes not fire within the AUT
+          // due to a documented bug: https://bugs.webkit.org/show_bug.cgi?id=187822
+          // To ensure that the event will always fire (and always report these
+          // unhandled rejections to the user), we patch the AUT's Error constructor
+          // to enqueue a no-op microtask when executed, which ensures that the unhandledrejection
+          // event handler will be executed if this Error is uncaught.
+            const originalError = autWindow.Error
+
+            autWindow.Error = function __CyWebKitError (...args) {
+              autWindow.queueMicrotask(() => {})
+
+              return originalError.apply(this, args)
+            }
+          }
+
+          setWindowDocumentProps(autWindow, this.state)
+
+          // we may need to update the url now
+          this.urlNavigationEvent('load')
+
+          // we normally DON'T need to reapply contentWindow listeners
+          // because they would have been automatically applied during
+          // onBeforeAppWindowLoad, but in the case where we visited
+          // about:blank in a visit, we do need these
+          this.contentWindowListeners(autWindow)
+        } else {
+          this.state('window', autWindow)
+          this.state('document', undefined)
+          // we may need to update the url now
+          this.urlNavigationEvent('load')
+        }
 
         // stability is signalled after the window:load event to give event
         // listeners time to be invoked prior to moving on, but not if
         // there is a cross-origin error and the cy.origin API is
         // not utilized
         try {
-          this.Cypress.action('app:window:load', this.state('window'))
-          const remoteLocation = this.getRemoteLocation()
+          // Get the location even if we're cross origin.
+          const remoteLocation = await this.getCrossOriginRemoteLocation()
 
-          cy.state('autOrigin', remoteLocation.originPolicy)
+          cy.state('autLocation', remoteLocation)
+          this.Cypress.action('app:window:load', this.state('window'), remoteLocation.href)
+
           this.Cypress.primaryOriginCommunicator.toAllSpecBridges('window:load', { url: remoteLocation.href })
         } catch (err: any) {
           // this catches errors thrown by user-registered event handlers
           // for `window:load`. this is used in the `catch` below so they
           // aren't mistaken as cross-origin errors
-          err.isFromWindowLoadEvent = true
+          // If this is a cypress error, pass it on through.
+          if (!$errUtils.isCypressErr(err)) {
+            err.isFromWindowLoadEvent = true
+          }
 
           throw err
         } finally {
@@ -593,13 +617,6 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
 
         // we failed setting the remote window props which
         // means the page navigated to a different origin
-
-        // With cross-origin support, this is an expected error that may or may
-        // not be bad, we will rely on the page load timeout to throw if we
-        // don't end up where we expect to be.
-        if (this.config('experimentalSessionAndOrigin') && err.name === 'SecurityError') {
-          return
-        }
 
         let e = err
 
@@ -675,19 +692,6 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
 
   runQueue () {
     cy.queue.run()
-    .then(() => {
-      const onQueueEnd = cy.state('onQueueEnd')
-
-      if (onQueueEnd) {
-        onQueueEnd()
-      }
-    })
-    .catch(() => {
-      // errors from the queue are propagated to cy.fail by the queue itself
-      // and can be safely ignored here. omitting this catch causes
-      // unhandled rejections to be logged because Bluebird sees a promise
-      // chain with no catch handler
-    })
   }
 
   addCommand ({ name, fn, type, prevSubject }) {
@@ -1080,27 +1084,6 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     return this.Cypress.action('app:navigation:changed', `page navigation event (${event})`)
   }
 
-  private cleanup () {
-    // cleanup could be called during a 'stop' event which
-    // could happen in between a runnable because they are async
-    if (this.state('runnable')) {
-      // make sure we reset the runnable's timeout now
-      this.state('runnable').resetTimeout()
-    }
-
-    // if a command fails then after each commands
-    // could also fail unless we clear this out
-    this.state('commandIntermediateValue', undefined)
-
-    // reset the nestedIndex back to null
-    this.state('nestedIndex', null)
-
-    // and forcibly move the index needle to the
-    // end in case we have after / afterEach hooks
-    // which need to run
-    return this.state('index', this.queue.length)
-  }
-
   private contentWindowListeners (contentWindow) {
     const cy = this
 
@@ -1167,33 +1150,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
   }
 
   private enqueue (obj: PartialBy<Cypress.EnqueuedCommand, 'id'>) {
-    // if we have a nestedIndex it means we're processing
-    // nested commands and need to insert them into the
-    // index past the current index as opposed to
-    // pushing them to the end we also dont want to
-    // reset the run defer because splicing means we're
-    // already in a run loop and dont want to create another!
-    // we also reset the .next property to properly reference
-    // our new obj
-
-    // we had a bug that would bomb on custom commands when it was the
-    // first command. this was due to nestedIndex being undefined at that
-    // time. so we have to ensure to check that its any kind of number (even 0)
-    // in order to know to insert it into the existing array.
-    let nestedIndex = this.state('nestedIndex')
-
-    // if this is a number, then we know we're about to insert this
-    // into our commands and need to reset next + increment the index
-    if (_.isNumber(nestedIndex)) {
-      this.state('nestedIndex', (nestedIndex += 1))
-    }
-
-    // we look at whether or not nestedIndex is a number, because if it
-    // is then we need to insert inside of our commands, else just push
-    // it onto the end of the queue
-    const index = _.isNumber(nestedIndex) ? nestedIndex : this.queue.length
-
-    this.queue.insert(index, $Command.create(obj))
+    this.queue.enqueue($Command.create(obj))
 
     return this.Cypress.action('cy:command:enqueued', obj)
   }
@@ -1213,11 +1170,13 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
     }
 
     // A workaround to ensure that when looking back, aliases don't extend beyond the current
-    // chainer. This whole area (`replayCommandsFrom` for aliases) will be replaced with subject chains as
-    // part of the detached DOM work.
+    // chainer and commands invoked inside of it. This whole area (`replayCommandsFrom` for aliases)
+    // will be replaced with subject chains as part of the detached DOM work.
+    const chainerId = command.get('chainerId')
     const prev = command.get('prev')
+    const prevChainer = prev.get('chainerId')
 
-    if (prev.get('chainerId') !== command.get('chainerId')) {
+    if (prevChainer !== chainerId && cy.state('subjectLinks')[prevChainer] !== chainerId) {
       return memo
     }
 
@@ -1346,7 +1305,7 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
   }
 
   private doneEarly () {
-    this.queue.stop()
+    this.queue.cleanup()
 
     // we only need to worry about doneEarly when
     // it comes from a manual event such as stopping
@@ -1361,7 +1320,5 @@ export class $Cy extends EventEmitter2 implements ITimeouts, IStability, IAssert
       this.state('canceled', true)
       this.state('cancel')()
     }
-
-    return this.cleanup()
   }
 }

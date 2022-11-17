@@ -45,6 +45,7 @@ const getMidPoint = (el) => {
 }
 
 const isFirefox = Cypress.isBrowser('firefox')
+const isWebKit = Cypress.isBrowser('webkit')
 
 describe('src/cy/commands/actions/click', () => {
   beforeEach(() => {
@@ -984,8 +985,8 @@ describe('src/cy/commands/actions/click', () => {
         cy.get('#ptrNone').click({ timeout: 300, force: true })
       })
 
-      it('should error with message about pointer-events', function () {
-        const onError = cy.stub().callsFake((err) => {
+      it('should error with message about pointer-events', function (done) {
+        cy.once('fail', (err) => {
           const { lastLog } = this
 
           expect(err.message).to.contain('has CSS `pointer-events: none`')
@@ -1000,18 +1001,14 @@ describe('src/cy/commands/actions/click', () => {
           ])
 
           expect(consoleProps['But it has CSS']).to.eq('pointer-events: none')
+          done()
         })
-
-        cy.once('fail', onError)
 
         cy.get('#ptrNone').click({ timeout: 300 })
-        .then(() => {
-          expect(onError).calledOnce
-        })
       })
 
-      it('should error with message about pointer-events and include inheritance', function () {
-        const onError = cy.stub().callsFake((err) => {
+      it('should error with message about pointer-events and include inheritance', function (done) {
+        cy.once('fail', (err) => {
           const { lastLog } = this
 
           expect(err.message).to.contain('has CSS `pointer-events: none`, inherited from this element:')
@@ -1029,14 +1026,10 @@ describe('src/cy/commands/actions/click', () => {
           expect(consoleProps['But it has CSS']).to.eq('pointer-events: none')
 
           expect(consoleProps['Inherited From']).to.eq(this.ptrNone.get(0))
+          done()
         })
-
-        cy.once('fail', onError)
 
         cy.get('#ptrNoneChild').click({ timeout: 300 })
-        .then(() => {
-          expect(onError).calledOnce
-        })
       })
     })
 
@@ -2095,10 +2088,8 @@ describe('src/cy/commands/actions/click', () => {
         cy.on('log:added', (attrs, log) => {
           this.lastLog = log
 
-          this.logs.push(log)
+          this.logs?.push(log)
         })
-
-        null
       })
 
       it('throws when not a dom subject', (done) => {
@@ -2238,7 +2229,7 @@ describe('src/cy/commands/actions/click', () => {
         const $btn = $('<button>button covered</button>').attr('id', 'button-covered-in-span').prependTo(cy.$$('body'))
         const span = $('<span>span on button</span>').css({ position: 'absolute', left: $btn.offset().left, top: $btn.offset().top, padding: 5, display: 'inline-block', backgroundColor: 'yellow' }).prependTo(cy.$$('body'))
 
-        cy.on('fail', (err) => {
+        cy.once('fail', (err) => {
           const { lastLog } = this
 
           // get + click logs
@@ -3595,7 +3586,8 @@ describe('src/cy/commands/actions/click', () => {
 
       cy.getAll('el', 'mousedown contextmenu mouseup').each(shouldNotBeCalled)
 
-      cy.getAll('el', 'pointerdown pointerup').each(isFirefox ? shouldNotBeCalled : shouldBeCalled)
+      // On disabled inputs, pointer events are still fired in chrome, not in firefox or webkit
+      cy.getAll('el', 'pointerdown pointerup').each(isFirefox || isWebKit ? shouldNotBeCalled : shouldBeCalled)
     })
 
     it('rightclick cancel contextmenu', () => {
@@ -4061,11 +4053,27 @@ describe('mouse state', () => {
           y: 10,
         }
 
+        const coordsWebKit = {
+          clientX: 500,
+          clientY: 10,
+          layerX: 500,
+          layerY: 226,
+          pageX: 500,
+          pageY: 226,
+          screenX: 500,
+          screenY: 10,
+          x: 500,
+          y: 10,
+        }
+
         let coords
 
         switch (Cypress.browser.family) {
           case 'firefox':
             coords = coordsFirefox
+            break
+          case 'webkit':
+            coords = coordsWebKit
             break
           default:
             coords = coordsChrome
@@ -4184,6 +4192,7 @@ describe('mouse state', () => {
 
           e.target.removeEventListener('pointerout', pointerout)
         }).as('pointerout')
+
         const pointerleave = cy.stub().callsFake((e) => {
           const exp = {
             altKey: false,
@@ -4221,6 +4230,7 @@ describe('mouse state', () => {
 
           e.target.removeEventListener('pointerleave', pointerleave)
         }).as('pointerleave')
+
         const mouseover = cy.stub().callsFake((e) => {
           const exp = {
             altKey: false,
@@ -4258,6 +4268,7 @@ describe('mouse state', () => {
 
           e.target.removeEventListener('mouseover', mouseover)
         }).as('mouseover')
+
         const mouseenter = cy.stub().callsFake((e) => {
           const exp = {
             altKey: false,
@@ -4295,6 +4306,7 @@ describe('mouse state', () => {
 
           e.target.removeEventListener('mouseenter', mouseenter)
         }).as('mouseenter')
+
         const pointerover = cy.stub().callsFake((e) => {
           const exp = {
             altKey: false,
@@ -4332,6 +4344,7 @@ describe('mouse state', () => {
 
           e.target.removeEventListener('pointerover', pointerover)
         }).as('pointerover')
+
         const pointerenter = cy.stub().callsFake((e) => {
           const exp = {
             altKey: false,
@@ -4495,9 +4508,10 @@ describe('mouse state', () => {
       // cy.wrap(onAction).should('calledOnce')
 
       cy.getAll('btn', 'pointerover pointerenter').each(shouldBeCalledOnce)
-      cy.getAll('btn', 'pointerdown pointerup').each(isFirefox ? shouldNotBeCalled : shouldBeCalledOnce)
 
-      cy.getAll('btn', 'mouseover mouseenter').each(isFirefox ? shouldBeCalled : shouldNotBeCalled)
+      // On disabled inputs, pointer events are still fired in chrome, not in firefox or webkit
+      cy.getAll('btn', 'pointerdown pointerup').each(isFirefox || isWebKit ? shouldNotBeCalled : shouldBeCalledOnce)
+      cy.getAll('btn', 'mouseover mouseenter').each(isFirefox || isWebKit ? shouldBeCalled : shouldNotBeCalled)
       cy.getAll('btn', 'mousedown mouseup click').each(shouldNotBeCalled)
     })
 
@@ -4521,7 +4535,9 @@ describe('mouse state', () => {
       cy.get('#btn').click()
 
       cy.getAll('btn', 'pointerdown mousedown').each(shouldBeCalledOnce)
-      cy.getAll('btn', 'pointerup').each(isFirefox ? shouldNotBeCalled : shouldBeCalledOnce)
+
+      // On disabled inputs, pointer events are still fired in chrome, not in firefox or webkit
+      cy.getAll('btn', 'pointerup').each(isFirefox || isWebKit ? shouldNotBeCalled : shouldBeCalledOnce)
 
       cy.getAll('btn', 'mouseup click').each(shouldNotBeCalled)
     })
@@ -4596,8 +4612,8 @@ describe('mouse state', () => {
 
       cy.getAll('btn', 'mousedown mouseup click').each(shouldNotBeCalled)
 
-      // on disabled inputs, pointer events are still fired in chrome, not in firefox
-      cy.getAll('btn', 'pointerdown pointerup').each(isFirefox ? shouldNotBeCalled : shouldBeCalled)
+      // On disabled inputs, pointer events are still fired in chrome, not in firefox or webkit
+      cy.getAll('btn', 'pointerdown pointerup').each(isFirefox || isWebKit ? shouldNotBeCalled : shouldBeCalled)
     })
 
     it('can target new element after mousedown sequence', () => {

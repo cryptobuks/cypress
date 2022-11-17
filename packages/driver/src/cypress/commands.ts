@@ -84,8 +84,6 @@ export default {
     }
 
     const Commands = {
-      _commands: commands, // for testing
-
       each (fn) {
         // perf loop
         for (let name in commands) {
@@ -155,7 +153,7 @@ export default {
             errProps: {
               appendToStack: {
                 title: 'From Cypress Internals',
-                content: $stackUtils.stackWithoutMessage((new Error('add command internal stack')).stack),
+                content: $stackUtils.stackWithoutMessage((new Error('add command internal stack')).stack!),
               } },
           })
         }

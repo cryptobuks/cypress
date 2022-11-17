@@ -1,6 +1,6 @@
 import _ from 'lodash'
 import { $Location } from '../../../cypress/location'
-
+import type { ServerSessionData } from '@packages/types'
 import {
   getCurrentOriginStorage,
   setPostMessageLocalStorage,
@@ -10,22 +10,32 @@ import {
 type ActiveSessions = Cypress.Commands.Session.ActiveSessions
 type SessionData = Cypress.Commands.Session.SessionData
 
-const getLogProperties = (displayName) => {
+const LOGS = {
+  clearCurrentSessionData: {
+    displayName: 'Clear cookies, localStorage and sessionStorage',
+    consoleProps: {
+      Event: 'Cypress.session.clearCurrentSessionData()',
+      Details: 'Clearing the cookies, localStorage and sessionStorage across all domains. This ensures the session is created in clean browser context.',
+    },
+  },
+}
+
+const getLogProperties = (apiName) => {
   return {
     name: 'sessions_manager',
-    displayName,
     message: '',
-    event: 'true',
+    event: true,
     state: 'passed',
     type: 'system',
     snapshot: false,
+    ...LOGS[apiName],
   }
 }
 
 export default class SessionsManager {
   Cypress
   cy
-  currentTestRegisteredSessions = new Map()
+  registeredSessions = new Map()
 
   constructor (Cypress, cy) {
     this.Cypress = Cypress
@@ -116,30 +126,30 @@ export default class SessionsManager {
   // this the public api exposed to consumers as Cypress.session
   sessions = {
     defineSession: (options = {} as any): SessionData => {
-      const sess_state: SessionData = {
+      return {
         id: options.id,
         cookies: null,
         localStorage: null,
+        sessionStorage: null,
         setup: options.setup,
         hydrated: false,
         validate: options.validate,
+        cacheAcrossSpecs: !!options.cacheAcrossSpecs,
       }
-
-      this.setActiveSession({ [sess_state.id]: sess_state })
-
-      return sess_state
     },
 
     clearAllSavedSessions: async () => {
       this.clearActiveSessions()
+      this.registeredSessions.clear()
+      const clearAllSessions = true
 
-      return this.Cypress.backend('clear:session', null)
+      return this.Cypress.backend('clear:sessions', clearAllSessions)
     },
 
     clearCurrentSessionData: async () => {
       // this prevents a log occurring when we clear session in-between tests
       if (this.cy.state('duringUserTestExecution')) {
-        this.Cypress.log(getLogProperties('Clear cookies, localStorage and sessionStorage'))
+        this.Cypress.log(getLogProperties('clearCurrentSessionData'))
       }
 
       window.localStorage.clear()
@@ -156,7 +166,7 @@ export default class SessionsManager {
 
       // persist the session to the server. Only matters in openMode OR if there's a top navigation on a future test.
       // eslint-disable-next-line no-console
-      return this.Cypress.backend('save:session', { ...data, setup: data.setup.toString() }).catch(console.error)
+      return this.Cypress.backend('save:session', { ...data, setup: data.setup.toString(), validate: data.validate?.toString() }).catch(console.error)
     },
 
     setSessionData: async (data) => {
@@ -205,7 +215,7 @@ export default class SessionsManager {
       }
     },
 
-    getSession: (id: string) => {
+    getSession: (id: string): Promise<ServerSessionData> => {
       return this.Cypress.backend('get:session', id)
     },
 
