@@ -1389,11 +1389,10 @@ jobs:
           condition:
             equal: [ *windows-executor, << parameters.executor >> ]
           steps:
-            - run: yarn yarn test-unit:scripts
             # make sure packages with TypeScript can be transpiled to JS
             - run: yarn lerna run build-prod --stream --concurrency 4
             # run unit tests from each individual package
-            - run: yarn test-unit
+            - run: yarn test-unit --ignore @packages/server
             # run type checking for each individual package
             - run: yarn lerna run types
             - verify-mocha-results:
@@ -1430,10 +1429,6 @@ jobs:
       - run:
           name: "Lint types 🧹"
           command: yarn workspace cypress dtslint
-  # todo(lachlan): do we need this? yarn check-ts does something very similar
-  #     - run:
-  #         name: "TypeScript check 🧩"
-  #         command: yarn type-check --ignore-progress
       - store-npm-logs
 
   server-unit-tests:
@@ -1441,7 +1436,7 @@ jobs:
     parallelism: 1
     steps:
       - restore_cached_workspace
-      - run: yarn test-unit --scope @packages/server
+      - run: yarn workspace @packages/server test-unit
       - verify-mocha-results:
           expectedResultCount: 1
       - store_test_results:
