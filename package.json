@@ -58,7 +58,7 @@
     "test-npm-package-release-script": "npx lerna exec --scope \"@cypress/*\" -- npx --no-install semantic-release --dry-run",
     "test-system": "yarn workspace @tooling/system-tests test",
     "pretest-unit": "yarn ensure-deps",
-    "test-unit": "yarn test-unit:cli && yarn test-unit:npm && yarn test-unit:packages && test-unit:scripts && yarn test-unit:tooling",
+    "test-unit": "yarn test-unit:cli && yarn test-unit:npm && yarn test-unit:packages && yarn test-unit:scripts && yarn test-unit:tooling",
     "test-unit:cli": "cd cli && yarn test-unit",
     "test-unit:npm": "lerna exec yarn test-unit --scope \"@cypress/*\"",
     "test-unit:packages": "lerna exec yarn test-unit --scope \"@packages/*\"",
