@@ -2491,6 +2491,12 @@ linux-x64-workflow: &linux-x64-workflow
     - npm-mount-utils:
         requires:
           - build
+    - npm-grep:
+        requires:
+          - build
+    - npm-xpath:
+        requires:
+          - build
     - npm-create-cypress-tests:
         requires:
           - build
@@ -2516,6 +2522,8 @@ linux-x64-workflow: &linux-x64-workflow
           - npm-create-cypress-tests
           - npm-react
           - npm-mount-utils
+          - npm-grep
+          - npm-xpath
           - npm-vue
           - npm-webpack-batteries-included-preprocessor
           - npm-webpack-preprocessor
