@@ -2,6 +2,6 @@
 
 require('./commands')
 
-import cypressGrep from '../../src/support'
+import cypressGrep from '@cypress/grep/src/support'
 
 cypressGrep()

@@ -4,9 +4,7 @@
   "description": "Filter tests using substring",
   "main": "src/support",
   "scripts": {
-    "test": "node ../../scripts/cypress.js run --config specPattern='**/unit.js'",
-    "cy:run": "node ./scripts.js",
-    "cy:open": "node ../../scripts/cypress.js open --e2e -b electron --config specPattern='**/unit.js'"
+    "cy:run": "mocha -r @packages/ts/register --reporter mocha-multi-reporters --reporter-options configFile=../../mocha-reporter-config.json e2e.spec.js --timeout=50000"
   },
   "dependencies": {
     "debug": "^4.3.2",
