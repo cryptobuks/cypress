@@ -4,6 +4,7 @@
   "description": "Filter tests using substring",
   "main": "src/support",
   "scripts": {
+    "test": "mocha -r @packages/ts/register --reporter mocha-multi-reporters --reporter-options configFile=../../mocha-reporter-config.json unit.spec.js",
     "cy:run": "mocha -r @packages/ts/register --reporter mocha-multi-reporters --reporter-options configFile=../../mocha-reporter-config.json e2e.spec.js --timeout=50000"
   },
   "dependencies": {
@@ -12,6 +13,7 @@
     "globby": "^11.0.4"
   },
   "devDependencies": {
+    "chai": "^4.3.6",
     "cypress": "^11.2.0",
     "cypress-each": "^1.11.0",
     "cypress-expect": "^2.5.3",
